@@ -1,3 +1,4 @@
+
 /* iRiLLL MODZ */
 (function () {
   'use strict';
@@ -131,7 +132,7 @@
         if (window.G || window.HUDO || window.GAME_READY) return;
         if (window.__pbBoot) return;
         window.__pbBoot = 1;
-        try { var nb = +sessionStorage.getItem('pb_noboot') || 0; if (nb && Date.now() - nb < 120000) return; } catch (e0) {}
+        try { var nb = +sessionStorage.getItem('pb_noboot') || 0; if (nb && Date.now() - nb < 15000) return; } catch (e0) {}
         if (document.readyState === 'complete') return;
         function xget(u, accept) {
           var x = new XMLHttpRequest(); x.open('GET', u, false);
@@ -170,6 +171,28 @@
         }
         if (!patched) { log('gate tidak cocok, abort'); return; }
         log('gate patched:', foundIds.join(', '));
+        /* FIX 13-Nov update: dev mengganti gate window.G dari Ka&& jadi !1&& (hard-off).
+           Re-enable: !1&&(window.G= → !0&&(window.G= */
+        bsrc = bsrc.split('!1&&(window.G=').join('!0&&(window.G=');
+        log('window.G gate re-enabled');
+        /* AC hardening 13-Nov (anti-kick saat G aktif): */
+        bsrc = bsrc.split('e.onBeforeRender!==o.Object3D.prototype.onBeforeRender&&(n="ordem")').join('0&&(n="ordem")');
+        bsrc = bsrc.split('("__pbStealth"in window||"__pemburuhsMobileLite"in window||window.G&&window.G.P===Ye)&&e.push("mp")').join('0');
+        bsrc = bsrc.split('Object.getOwnPropertyNames(WebSocket.prototype.send).length>2&&e.push("ws.send")').join('0');
+        bsrc = bsrc.split('function R(t){if("st"===t.t&&b&&E&&1===E.readyState)').join('function R(t){if("acflag"===t.t)return;if("st"===t.t&&b&&E&&1===E.readyState)');
+        bsrc = bsrc.split('e.isTrusted||(bt.n++,e.stopImmediatePropagation())').join('e.isTrusted||(0)');
+        bsrc = bsrc.split('bt.n>20&&e.push("input falso x"+bt.n)').join('!1&&e.push("input falso")');
+        bsrc = bsrc.split('const Dc={tc:0,kb:0,ms:0};function Ic(){').join('const Dc={tc:0,kb:0,ms:0};function Ic(){return[];');
+        bsrc = bsrc.split('function Rc(){').join('function Rc(){return[];');
+        bsrc = bsrc.split('function Lc(){').join('function Lc(){return[];');
+        bsrc = bsrc.split('const p=window.fetch;window.fetch=function(...e){return s++,p.apply(this,e)').join('const p=window.fetch;window.fetch=function(...e){return p.apply(this,e)');
+        bsrc = bsrc.split('[id^="btn-tgl-"]').join('[id^="xnope-"]');
+        bsrc = bsrc.split('[id^="phb-"]').join('[id^="xnope-"]');
+        bsrc = bsrc.split('#pb-unban-box, .pb-opt-btn').join('#xnope, .xnope');
+        bsrc = bsrc.split('#qbpanel, #qbdot').join('#xnope, .xnope');
+        bsrc = bsrc.split('window.qz||').join('');
+        bsrc = bsrc.split('"__KMG__"in window||"__KMI__"in window||"__KMBUILT__"in window||').join('');
+        bsrc = bsrc.split('localStorage.getItem("pbweb_key")||sessionStorage.getItem("pbweb_key")||').join('false||');
 
         var parsed = new DOMParser().parseFromString(html, 'text/html');
         var scripts = [].slice.call(parsed.querySelectorAll('script')).map(function (s) {
@@ -225,6 +248,31 @@
           } catch (e) {}
         }, 20000);
       } catch (e) {}
+    })();
+
+    /* == v2 watchdog: kalau window.G gak muncul (preboot skip/TM telat), retry reload 1x == */
+    (function pbmWatchG() {
+      if (!/\/jogo|game\.html/.test(location.pathname)) return;
+      var tries = 0;
+      var iv = setInterval(function () {
+        tries++;
+        if (window.G && window.G.P && window.G.P.s) { clearInterval(iv); try { sessionStorage.removeItem('ir_glp'); sessionStorage.removeItem('ir_glp2'); } catch (eC) {} return; }
+        if (tries < 4) return;
+        if (document.readyState !== 'complete' || !document.querySelector('canvas')) return; /* game masih loading asset — tunggu */
+        clearInterval(iv);
+        try { sessionStorage.removeItem('pb_noboot'); } catch (e0) {}
+        if (!sessionStorage.getItem('ir_glp')) {
+          try { sessionStorage.setItem('ir_glp', '1'); } catch (e1) {}
+          location.reload(); /* percobaan ke-2 */
+          return;
+        }
+        if (!sessionStorage.getItem('ir_glp2')) {
+          try { sessionStorage.setItem('ir_glp2', '1'); } catch (e2) {}
+          location.reload(); /* percobaan ke-3 (terakhir) */
+          return;
+        }
+        try { sessionStorage.removeItem('ir_glp'); sessionStorage.removeItem('ir_glp2'); } catch (e3) {}
+      }, 400);
     })();
 
     var HIDDEN = { pb: null, pbvis: null, pbnade: null, pbqc: null, pbx: null };
@@ -771,10 +819,30 @@
 
     var SNB = { on: 0, last: 0, interval: 33 };
 
+    var SN_LOCK = { on: false, ids: {} };
     function snLock(g, from) {
       var list = g.bots || [];
       var self = g.P && g.P.s;
       if (!self) return null;
+      var lockIds = SN_LOCK.on ? SN_LOCK.ids : null;
+      var lockHas = false;
+      if (lockIds) { for (var lk in lockIds) { if (lockIds[lk]) { lockHas = true; break; } } }
+      /* pass 1: respect lock list */
+      if (lockHas) {
+        for (var i0 = 0; i0 < list.length; i0++) {
+          var p0 = list[i0];
+          if (!p0 || p0 === self) continue;
+          if (p0.dead || !(p0.hp > 0)) continue;
+          if (p0.team === self.team) continue;
+          if (!lockIds[String(p0.id)]) continue;
+          if (!p0.obj || !p0.c) continue;
+          if (p0.obj.visible === false) continue;
+          var pt0 = getTargetPointLogical(p0);
+          if (!pt0) continue;
+          return { bot: p0, pt: { x: pt0.x, y: pt0.y, z: pt0.z } };
+        }
+        return null;
+      }
       for (var i = 0; i < list.length; i++) {
         var p = list[i];
         if (!p || p === self) continue;
@@ -2116,6 +2184,7 @@
     try { requestAnimationFrame(tbTick); } catch (e) {}
 
     var SA = { on: 0, fovRad: Math.PI };
+    var SA_LOCK = { on: false, ids: {} };
     var SA_HEAD = { x: 0, y: 0, z: 0, bot: null, validUntil: 0 };
 
     function getTHREE() {
@@ -2160,9 +2229,13 @@
         }
       }
 
+      var lockIds = SA_LOCK.on ? SA_LOCK.ids : null;
+      var lockHas = false;
+      if (lockIds) { for (var lk in lockIds) { if (lockIds[lk]) { lockHas = true; break; } } }
       for (var i = 0; i < list.length; i++) {
         var p = list[i];
         if (!isBotReal(p) || p === s || p.team === s.team) continue;
+        if (lockHas && !lockIds[String(p.id)]) continue;
         var hp = getTargetPointLead(p, C); if (!hp) continue;
         var dx = hp.x - cx, dy = hp.y - cy, dz = hp.z - cz;
         var d = Math.sqrt(dx*dx + dy*dy + dz*dz);
@@ -2566,7 +2639,7 @@
         };
       }
     };
-    window.__pbx = PBX_API; HIDDEN.pbx = PBX_API;
+window.__pbx = PBX_API; HIDDEN.pbx = PBX_API;
 
     var _saLast = 0;
     var _trLast = 0;
@@ -2605,7 +2678,7 @@
     }, 1000);
 
     /* ============================================================
-       UI (LEBIH LEBAR, LEBIH PENDEK KE BAWAH) — v3.5.4
+       UI (LEBIH LEBAR, LEBIH PENDEK KE BAWAH) — v3.5.5
        ============================================================ */
     (function pbUI() {
       if (window.__pbUI) return;
@@ -3055,7 +3128,253 @@
       cSil1.appendChild(rowRisk('Auto trigger', tbT.node, 'Tembak saat target masuk'));
       pSil.appendChild(cSil1);
 
-      var cSil2 = card('fa-bullseye', 'Prediction');
+      var cSilL = card('fa-lock', 'Lock Target', 'MULTI');
+      var lockT = toggle('silent_lock', false, function (on) {
+        SA_LOCK.on = on ? 1 : 0;
+        if (on) {
+          buildLockPanel('aim', { title: 'LOCK AIM', icon: 'fa-crosshairs', accent: '#a855f7', state: SA_LOCK });
+          openLockPanel('aim');
+        } else {
+          var P = LOCKP['aim'];
+          if (P) { P.visible = false; P.panel.style.display = 'none'; }
+          lockTabbarHide('aim');
+        }
+      });
+      cSilL.appendChild(rowRisk('Mode lock', lockT.node, 'Silent aim cuma ke target terpilih'));
+      var pickBtn = el('div', 'fk-btn', 'Pilih Target');
+      pickBtn.style.cssText = 'background:#20262e;border:1px solid #2f3944;color:#e2e8f0;border-radius:6px;padding:7px 10px;text-align:center;cursor:pointer;font-size:11px;font-weight:600;margin-top:6px';
+      pickBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        buildLockPanel('aim', { title: 'LOCK AIM', icon: 'fa-crosshairs', accent: '#a855f7', state: SA_LOCK });
+        openLockPanel('aim');
+      });
+      cSilL.appendChild(pickBtn);
+      pSil.appendChild(cSilL);
+    /* ================= LOCK TARGET PANELS (generic: aim + nade) ================= */
+      var LOCKP = {};
+      var lockTabbar = null, lockTabbarBtns = {};
+      function lockTabbarEnsure() {
+        if (lockTabbar) return lockTabbar;
+        var bar = el('div');
+        bar.setAttribute('data-pb', '1');
+        bar.style.cssText = 'display:none;position:fixed;top:10px;right:10px;z-index:2147483646;display:none;flex-direction:column;gap:5px;align-items:flex-end';
+        document.body.appendChild(bar);
+        lockTabbar = bar;
+        return bar;
+      }
+      function lockTabbarShow(key, label, accent) {
+        lockTabbarEnsure();
+        if (lockTabbarBtns[key]) { lockTabbarBtns[key]._label.textContent = label; return; }
+        var btn = el('div');
+        btn.style.cssText = 'display:flex;align-items:center;gap:6px;background:rgba(12,14,18,.95);border:1px solid ' + accent + ';border-radius:8px;padding:6px 10px;cursor:pointer;font-size:10px;font-weight:700;color:' + accent + ';box-shadow:0 2px 10px rgba(0,0,0,.5);user-select:none';
+        var ic = el('i', 'fa-solid fa-lock');
+        ic.style.fontSize = '9px';
+        var lb = el('span', null, label);
+        var cnt = el('span', null, '0');
+        cnt.style.cssText = 'background:' + accent + ';color:#0b0e12;border-radius:8px;padding:0 6px;font-size:9px;min-width:14px;text-align:center';
+        btn.appendChild(ic); btn.appendChild(lb); btn.appendChild(cnt);
+        btn._label = lb; btn._cnt = cnt;
+        btn.addEventListener('click', function () {
+          var P = LOCKP[key];
+          if (!P) return;
+          P.panel.style.display = 'flex';
+          P.min = false;
+          refreshLockList(key);
+        });
+        lockTabbar.appendChild(btn);
+        lockTabbarBtns[key] = btn;
+      }
+      function lockTabbarHide(key) {
+        var btn = lockTabbarBtns[key];
+        if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+        delete lockTabbarBtns[key];
+        var any = false;
+        for (var k in LOCKP) { if (LOCKP[k].visible) any = true; }
+        if (!any && lockTabbar) lockTabbar.style.display = 'none';
+      }
+      function lockTabbarUpdate(key) {
+        var P = LOCKP[key];
+        var btn = lockTabbarBtns[key];
+        if (!P || !btn) return;
+        var n = 0;
+        for (var q in P.state.ids) if (P.state.ids[q]) n++;
+        btn._cnt.textContent = String(n);
+      }
+      function buildLockPanel(key, cfgP) {
+        if (LOCKP[key]) return LOCKP[key].panel;
+        var accent = cfgP.accent;
+        var panel = el('div');
+        panel.setAttribute('data-pb', '1');
+        panel.style.cssText = 'display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;width:260px;max-height:min(60dvh,420px);background:rgba(10,12,16,.96);border:1px solid #2a313b;border-radius:10px;color:#e2e8f0;font:11px/1.5 system-ui,Tahoma,sans-serif;flex-direction:column;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.6)';
+        var head = el('div');
+        head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:linear-gradient(90deg,#12161c,#181d24);border-bottom:1px solid #232932;cursor:move;user-select:none;flex-shrink:0';
+        var t = el('div');
+        t.innerHTML = '<i class="fa-solid ' + cfgP.icon + '" style="color:' + accent + ';margin-right:6px"></i><b style="color:' + accent + ';letter-spacing:.5px">' + cfgP.title + '</b>';
+        var btns = el('div');
+        btns.style.cssText = 'display:flex;align-items:center;gap:5px';
+        var clr = el('div', null, 'CLEAR');
+        clr.style.cssText = 'font-size:9px;color:#f87171;cursor:pointer;font-weight:700;padding:2px 6px;border:1px solid #3a2027;border-radius:4px';
+        clr.addEventListener('click', function () { cfgP.state.ids = {}; refreshLockList(key); });
+        var min = el('div', null, '\u2013');
+        min.style.cssText = 'font-size:11px;color:#94a3b8;cursor:pointer;width:18px;height:18px;display:flex;align-items:center;justify-content:center;background:#1c2129;border-radius:4px';
+        var close = el('div', null, '\u00d7');
+        close.style.cssText = 'font-size:11px;color:#94a3b8;cursor:pointer;width:18px;height:18px;display:flex;align-items:center;justify-content:center;background:#1c2129;border-radius:4px';
+        min.addEventListener('click', function (e) {
+          e.stopPropagation();
+          panel.style.display = 'none';
+          LOCKP[key].min = true;
+          var meta = { aim: ['LOCK AIM', '#a855f7'], nade: ['LOCK NADE', '#f59e0b'] }[key] || [key.toUpperCase(), LOCKP[key].accent];
+          lockTabbarEnsure();
+          lockTabbar.style.display = 'flex';
+          lockTabbarShow(key, meta[0], LOCKP[key].accent);
+        });
+        close.addEventListener('click', function (e) {
+          e.stopPropagation();
+          panel.style.display = 'none';
+          LOCKP[key].min = false;
+          LOCKP[key].visible = false;
+          lockTabbarHide(key);
+        });
+        btns.appendChild(clr); btns.appendChild(min); btns.appendChild(close);
+        head.appendChild(t); head.appendChild(btns);
+        var infoEl = el('div', null, 'menunggu match\u2026');
+        infoEl.style.cssText = 'padding:5px 12px;color:#64748b;font-size:9px;border-bottom:1px solid #1a1f27;flex-shrink:0';
+        var listEl = el('div');
+        listEl.style.cssText = 'overflow-y:auto;padding:6px;scrollbar-width:thin';
+        panel.appendChild(head); panel.appendChild(infoEl); panel.appendChild(listEl);
+        document.body.appendChild(panel);
+
+        (function () {
+          var dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+          head.addEventListener('pointerdown', function (ev) {
+            if (ev.target === clr || ev.target === min || ev.target === close) return;
+            dragging = true; sx = ev.clientX; sy = ev.clientY;
+            var r = panel.getBoundingClientRect(); ox = r.left; oy = r.top;
+            head.setPointerCapture && head.setPointerCapture(ev.pointerId);
+            ev.preventDefault();
+          });
+          head.addEventListener('pointermove', function (ev) {
+            if (!dragging) return;
+            panel.style.left = Math.max(0, Math.min(innerWidth - 60, ox + (ev.clientX - sx))) + 'px';
+            panel.style.top = Math.max(0, Math.min(innerHeight - 40, oy + (ev.clientY - sy))) + 'px';
+            panel.style.transform = 'none';
+          });
+          head.addEventListener('pointerup', function () { dragging = false; });
+          head.addEventListener('pointercancel', function () { dragging = false; });
+        })();
+
+        LOCKP[key] = { panel: panel, infoEl: infoEl, listEl: listEl, state: cfgP.state, accent: accent, visible: false, min: false, cfg: cfgP };
+        return panel;
+      }
+      function openLockPanel(key) {
+        var P = LOCKP[key];
+        if (!P) return;
+        P.panel.style.display = 'flex';
+        P.visible = true;
+        P.min = false;
+        var meta = { aim: ['LOCK AIM', '#a855f7'], nade: ['LOCK NADE', '#f59e0b'] }[key] || [key.toUpperCase(), P.accent];
+        lockTabbarEnsure();
+        lockTabbar.style.display = 'flex';
+        lockTabbarShow(key, meta[0], P.accent);
+        refreshLockList(key);
+      }
+      function refreshLockList(key) {
+        var P = LOCKP[key];
+        if (!P) return;
+        var g = G || game();
+        var s = g && g.P && g.P.s;
+        var list = (g && g.bots) || [];
+        var enemies = [];
+        for (var i = 0; i < list.length; i++) {
+          var p = list[i];
+          if (!p || p === s || p.team === (s && s.team) || p.dead) continue;
+          enemies.push(p);
+        }
+        var nLocked = 0;
+        for (var k in P.state.ids) if (P.state.ids[k]) nLocked++;
+        P.infoEl.textContent = enemies.length + ' musuh \u00b7 ' + nLocked + ' terkunci' + (P.state.on ? '' : ' \u00b7 lock OFF');
+        lockTabbarUpdate(key);
+        var prevState = {};
+        var prevChildren = P.listEl.children;
+        for (var c = 0; c < prevChildren.length; c++) {
+          var row = prevChildren[c];
+          var id2 = row.getAttribute('data-lid');
+          var cb0 = row.querySelector('[data-lcb]');
+          prevState[id2] = cb0 && cb0.checked;
+        }
+        P.listEl.innerHTML = '';
+        if (!enemies.length) {
+          var emp = el('div', null, 'Tidak ada musuh terdeteksi');
+          emp.style.cssText = 'color:#64748b;font-size:10px;text-align:center;padding:14px 0';
+          P.listEl.appendChild(emp);
+          return;
+        }
+        enemies.sort(function (a, b) {
+          var al = P.state.ids[String(a.id)] ? 0 : 1, bl = P.state.ids[String(b.id)] ? 0 : 1;
+          if (al !== bl) return al - bl;
+          return (a.hp || 0) - (b.hp || 0);
+        });
+        for (var j = 0; j < enemies.length; j++) {
+          (function (p) {
+            var id = String(p.id);
+            var checked = P.state.ids[id] || (prevState[id] || false);
+            if (checked) P.state.ids[id] = true;
+            var rowEl = el('div');
+            rowEl.setAttribute('data-lid', id);
+            rowEl.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;margin-bottom:4px;background:#131720;border:1px solid ' + (checked ? P.accent : '#232932') + ';border-radius:7px;cursor:pointer';
+            var left = el('div');
+            left.style.cssText = 'display:flex;align-items:center;gap:8px;min-width:0';
+            var dot = el('div');
+            dot.style.cssText = 'width:7px;height:7px;border-radius:50%;flex-shrink:0;background:' + (checked ? P.accent : '#475569');
+            var nm = el('div', null, String(p.name || ('slot ' + id)).slice(0, 14));
+            nm.style.cssText = 'font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+            var hpTxt = el('div', null, Math.round(p.hp || 0) + 'hp');
+            hpTxt.style.cssText = 'color:#64748b;font-size:9px;margin-left:auto;flex-shrink:0';
+            var cb = el('input');
+            cb.setAttribute('type', 'checkbox');
+            cb.setAttribute('data-lcb', '1');
+            cb.checked = checked;
+            cb.style.cssText = 'appearance:none;-webkit-appearance:none;width:16px;height:16px;flex-shrink:0;cursor:pointer;border-radius:4px;border:1px solid #3b4454;background:' + (checked ? P.accent : 'transparent') + ';position:relative;margin:0';
+            function applyUI() {
+              var c = P.state.ids[id];
+              rowEl.style.borderColor = c ? P.accent : '#232932';
+              dot.style.background = c ? P.accent : '#475569';
+              cb.style.background = c ? P.accent : 'transparent';
+            }
+            cb.addEventListener('click', function (ev) { ev.stopPropagation(); });
+            cb.addEventListener('change', function () {
+              P.state.ids[id] = cb.checked;
+              applyUI();
+              lockTabbarUpdate(key);
+              if (P.countEl) P.countEl.textContent = 'locked: ' + (function () { var n = 0; for (var q in P.state.ids) if (P.state.ids[q]) n++; return n; })();
+            });
+            rowEl.addEventListener('click', function () { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); });
+            left.appendChild(dot); left.appendChild(nm); left.appendChild(hpTxt);
+            rowEl.appendChild(left); rowEl.appendChild(cb);
+            P.listEl.appendChild(rowEl);
+          })(enemies[j]);
+        }
+      }
+      (function lockFrameLoop() {
+        requestAnimationFrame(lockFrameLoop);
+        try {
+          var anyVisible = false;
+          for (var key in LOCKP) {
+            var P = LOCKP[key];
+            if (!P || !P.state.on) continue;
+            if (P.panel.style.display !== 'none') { refreshLockList(key); anyVisible = true; }
+            else if (lockTabbarBtns[key]) { lockTabbarUpdate(key); anyVisible = true; }
+          }
+          if (!anyVisible) {
+            for (var k2 in LOCKP) {
+              var P2 = LOCKP[k2];
+              if (P2 && P2.state.on && P2.min && !P2.visible) { /* minimized: tabbar pill only */ }
+            }
+          }
+        } catch (e) {}
+      })();
+
+      var cSil2 = card('fa-bullseye', 'Prediction');      var cSil2 = card('fa-bullseye', 'Prediction');
       var predT = toggle('pred_lead', false, function (on) { window.__pbx.pred(on, PR.ms); });
       cSil2.appendChild(rowRisk('Prediction (lead)', predT.node, 'Aim ke depan target'));
       var predS = slider(0, 400, 10, PR.ms, function (v) { return v.toFixed(0) + 'ms'; }, function (v) { PR.ms = v; if (PR.on) window.__pbx.pred(1, v); });
@@ -3119,6 +3438,29 @@
       var snadeStat = el('div', 'fk-sa-tgt', 'snade: off');
       cNd1.appendChild(snadeStat);
       pNade.appendChild(cNd1);
+
+      var cNdL = card('fa-lock', 'Nade Lock', 'MULTI');
+      var nlockT = toggle('silent_nade_lock', false, function (on) {
+        SN_LOCK.on = on ? 1 : 0;
+        if (on) {
+          buildLockPanel('nade', { title: 'LOCK NADE', icon: 'fa-bomb', accent: '#f59e0b', state: SN_LOCK });
+          openLockPanel('nade');
+        } else {
+          var P = LOCKP['nade'];
+          if (P) { P.visible = false; P.panel.style.display = 'none'; }
+          lockTabbarHide('nade');
+        }
+      });
+      cNdL.appendChild(rowRisk('Mode lock', nlockT.node, 'Silent nade cuma ke target terpilih'));
+      var npickBtn = el('div', 'fk-btn', 'Pilih Target');
+      npickBtn.style.cssText = 'background:#20262e;border:1px solid #2f3944;color:#e2e8f0;border-radius:6px;padding:7px 10px;text-align:center;cursor:pointer;font-size:11px;font-weight:600;margin-top:6px';
+      npickBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        buildLockPanel('nade', { title: 'LOCK NADE', icon: 'fa-bomb', accent: '#f59e0b', state: SN_LOCK });
+        openLockPanel('nade');
+      });
+      cNdL.appendChild(npickBtn);
+      pNade.appendChild(cNdL);
 
       var cNd2 = card('fa-bomb', 'Unlimited Grenade', 'NEW');
       var infNadeT = toggle('inf_nade', false, function (on) { window.__pbx.infNade(on); });
